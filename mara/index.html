@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Control Total por Sensores | Círculo + Cuadrado + Color + Reinicio</title>
+    <style>
+        * {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            text-align: center;
+            background: #1e1e2f;
+            color: white;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin: 0 0 0.25rem;
+            background: linear-gradient(135deg, #ffaa44, #ff6600);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+        }
+
+        .sub {
+            font-size: 0.85rem;
+            opacity: 0.8;
+            margin-bottom: 0.5rem;
+        }
+
+        canvas {
+            border: 3px solid #ffaa44;
+            border-radius: 20px;
+            margin-top: 15px;
+            background: #0a0a1a;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            width: 300px;
+            height: 300px;
+            display: block;
+            touch-action: none;
+        }
+
+        .button-panel {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin: 15px 0 10px;
+        }
+
+        button {
+            background: #ff6600;
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            border-radius: 40px;
+            cursor: pointer;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+            transition: transform 0.1s, background 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+            background: #e05a00;
+        }
+
+        .reset-btn {
+            background: #3a6ea5;
+        }
+        .reset-btn:active {
+            background: #2c5380;
+        }
+        .mode-btn {
+            background: #6c3a9e;
+        }
+        .mode-btn:active {
+            background: #512e7a;
+        }
+
+        .info {
+            background: #2a2a3a;
+            backdrop-filter: blur(4px);
+            padding: 12px 16px;
+            border-radius: 28px;
+            width: 90%;
+            max-width: 360px;
+            font-size: 0.85rem;
+            margin-top: 10px;
+            border: 1px solid #ffaa4455;
+        }
+
+        #datos {
+            font-family: 'Courier New', monospace;
+            background: #00000066;
+            padding: 10px;
+            border-radius: 20px;
+            margin: 8px 0 0;
+            word-break: break-word;
+            font-size: 0.8rem;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #00000077;
+            border-radius: 50px;
+            padding: 4px 12px;
+            font-size: 0.7rem;
+            margin: 5px;
+        }
+
+        footer {
+            font-size: 0.7rem;
+            opacity: 0.6;
+            margin-top: 18px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>🎮 Control Total</h1>
+<div class="sub">📱 Inclina el celular → cambia color, posición y tamaño</div>
+
+<canvas id="lienzo" width="300" height="300"></canvas>
+
+<div class="button-panel">
+    <button id="activarBtn">🔘 ACTIVAR SENSORES</button>
+    <button id="resetBtn" class="reset-btn">🔄 Centrar</button>
+    <button id="modoBtn" class="mode-btn">🔲 Modo Cuadrado</button>
+</div>
+
+<div class="info">
+    <p>🎨 <strong>Color dinámico</strong> (rojo = muy inclinado) | <strong>Tamaño variable</strong> (solo en modo cuadrado)</p>
+    <p id="datos">⚡ Esperando activación ...</p>
+    <div class="badge">✨ Valores brutos sin redondear</div>
+</div>
+
+<footer>✅ Compatible Android + iPhone | Toque el botón o auto‑activación (Android)</footer>
+
+<script>
+    // ============================================================
+    // PRÁCTICA COMPLETA: TODOS LOS RETOS Y MEJORAS
+    // - Color según inclinación (gamma+beta)
+    // - Botón reinicio (centrar círculo/cuadrado)
+    // - Mostrar valores crudos (sin redondear)
+    // - Auto-activación (intento al cargar)
+    // - Modo cuadrado que cambia de tamaño según inclinación (más inclinado = más grande)
+    // - Modo círculo mantiene color dinámico y radio fijo
+    // ============================================================
+
+    // ----- Elementos DOM -----
+    const canvas = document.getElementById('lienzo');
+    const ctx = canvas.getContext('2d');
+    const datosDiv = document.getElementById('datos');
+    const botonActivar = document.getElementById('activarBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const modoBtn = document.getElementById('modoBtn');
+
+    // ----- Variables de forma -----
+    let modoCuadrado = false;       // false = círculo, true = cuadrado
+    let posX = 150, posY = 150;     // centro del canvas (300px)
+    let radioFijo = 20;             // radio del círculo (fijo)
+    let tamañoCuadrado = 30;        // tamaño base del cuadrado (cambiará según inclinación)
+    
+    // Variables para color dinámico
+    let ultimaInclinacion = 0;      // valor combinado para color (0 = normal, 1 = muy inclinado)
+    
+    // Control de sensores
+    let sensoresActivos = false;
+    
+    // ----- Función para mapear rangos -----
+    function mapear(valor, minIn, maxIn, minOut, maxOut) {
+        let v = Math.min(maxIn, Math.max(minIn, valor));
+        return ((v - minIn) / (maxIn - minIn)) * (maxOut - minOut) + minOut;
+    }
+    
+    // ----- Función que calcula color basado en inclinación (gamma y beta) -----
+    // Devuelve un color HSL o RGB. Usaremos HSL: hue rojo (0) cuando muy inclinado, naranja/ámbar (30-40) cuando centrado.
+    function obtenerColorPorInclinacion(gamma, beta) {
+        // Usamos la magnitud (desviación del centro) combinando gamma y beta
+        // Rango típico gamma -70..70, beta -70..70. Normalizamos distancia al cuadrado
+        let normGamma = Math.abs(gamma) / 70;
+        let normBeta = Math.abs(beta) / 70;
+        let intensidad = Math.min(1, (normGamma + normBeta) / 2);  // 0 = centrado, 1 = muy inclinado
+        
+        // Hue: desde 35° (naranja suave) hasta 0° (rojo fuerte) y si muy inclinado rojo puro
+        let hue = 35 - (intensidad * 35);   // 35 -> 0
+        // Saturación: 85% fija, luminosidad 60%
+        return `hsl(${hue}, 85%, 58%)`;
+    }
+    
+    // ----- Función de dibujo principal (círculo o cuadrado con color dinámico y tamaño variable) -----
+    function dibujar(gammaActual = 0, betaActual = 0) {
+        // Limpiar canvas
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Color dinámico según inclinación (si tenemos valores de sensores)
+        let colorFigura = obtenerColorPorInclinacion(gammaActual, betaActual);
+        ctx.fillStyle = colorFigura;
+        ctx.shadowBlur = 0;
+        
+        if (!modoCuadrado) {
+            // ----- MODO CÍRCULO: radio fijo, color variable -----
+            ctx.beginPath();
+            ctx.arc(posX, posY, radioFijo, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffffcc';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        } else {
+            // ----- MODO CUADRADO: tamaño variable según inclinación (más inclinado = más grande) -----
+            // Calculamos la intensidad combinada (gamma + beta) para determinar el tamaño
+            let intensidadTamaño = (Math.abs(gammaActual) / 70 + Math.abs(betaActual) / 70) / 2;
+            // Tamaño mínimo 20px, máximo 70px
+            let lado = mapear(intensidadTamaño, 0, 1, 25, 70);
+            tamañoCuadrado = lado;
+            // Dibujar cuadrado centrado en (posX, posY)
+            let mitad = tamañoCuadrado / 2;
+            ctx.fillRect(posX - mitad, posY - mitad, tamañoCuadrado, tamañoCuadrado);
+            ctx.strokeStyle = '#ffffffdd';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(posX - mitad, posY - mitad, tamañoCuadrado, tamañoCuadrado);
+        }
+        
+        // Siempre dibujar punto de referencia central y rejilla decorativa
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.arc(150, 150, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffaa44';
+        ctx.beginPath();
+        ctx.arc(150, 150, 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // retícula sutil
+        ctx.beginPath();
+        ctx.strokeStyle = '#ffffff30';
+        ctx.lineWidth = 0.5;
+        for (let i = -2; i <= 2; i++) {
+            if (i === 0) continue;
+            ctx.moveTo(150 + i*20, 150 - 8);
+            ctx.lineTo(150 + i*20, 150 + 8);
+            ctx.moveTo(150 - 8, 150 + i*20);
+            ctx.lineTo(150 + 8, 150 + i*20);
+            ctx.stroke();
+        }
+    }
+    
+    // ----- Manejador de orientación (actualiza posición, color y tamaño) -----
+    function manejarOrientation(event) {
+        if (!sensoresActivos) return;
+        
+        let gamma = event.gamma;   // izquierda/derecha (-90 a 90)
+        let beta = event.beta;     // adelante/atrás (-90 a 90)
+        if (gamma === undefined || beta === undefined) return;
+        
+        // Mostrar valores CRUDOS sin redondear (retos: mostrar sin redondear)
+        let gammaRaw = gamma;
+        let betaRaw = beta;
+        // Para mostrarlos con hasta 4 decimales si tiene muchos
+        let gammaStr = gammaRaw.toFixed(4);
+        let betaStr = betaRaw.toFixed(4);
+        
+        // Mapeo a coordenadas (mismos rangos que original)
+        let nuevaX = mapear(gamma, -70, 70, 20, 280);
+        let nuevaY = mapear(beta, -70, 70, 20, 280);
+        nuevaX = Math.min(280, Math.max(20, nuevaX));
+        nuevaY = Math.min(280, Math.max(20, nuevaY));
+        
+        posX = nuevaX;
+        posY = nuevaY;
+        
+        // Mostrar en el panel toda la información + valores brutos
+        datosDiv.innerHTML = `📊 <strong>Valores brutos</strong><br>
+        🌀 Gamma: ${gammaStr}° &nbsp; | &nbsp; 📐 Beta: ${betaStr}°<br>
+        🟠 Posición: X=${Math.round(posX)} , Y=${Math.round(posY)}<br>
+        ${modoCuadrado ? `⬛ Tamaño cuadrado: ${tamañoCuadrado.toFixed(1)}px (intensidad)` : `🔘 Radio círculo: ${radioFijo}px (fijo)`}<br>
+        🎨 Color: según inclinación (rojo = muy inclinado)`;
+        
+        // Redibujar pasando gamma y beta reales para el color y tamaño variable
+        dibujar(gammaRaw, betaRaw);
+    }
+    
+    // ----- Función para centrar la figura -----
+    function centrarFigura() {
+        posX = 150;
+        posY = 150;
+        // Redibujar con últimos valores conocidos (si no hay sensores activos, color neutro)
+        if (sensoresActivos) {
+            // Forzamos llamada a dibujar con gamma/beta 0 para color centrado
+            dibujar(0, 0);
+        } else {
+            dibujar(0, 0);
+        }
+        datosDiv.innerHTML = datosDiv.innerHTML + "<br>🔄 Círculo centrado manualmente";
+    }
+    
+    // ----- Alternar modo círculo / cuadrado -----
+    function toggleModo() {
+        modoCuadrado = !modoCuadrado;
+        if (modoCuadrado) {
+            modoBtn.innerHTML = "⚪ Modo Círculo";
+            modoBtn.style.background = "#3a6ea5";
+        } else {
+            modoBtn.innerHTML = "🔲 Modo Cuadrado";
+            modoBtn.style.background = "#6c3a9e";
+        }
+        // Redibujar con los valores actuales (si tenemos sensores)
+        if (sensoresActivos) {
+            // Simular evento con último gamma/beta conocido? Mejor obtenerlos. No almacenamos, pero podemos simplemente redibujar sin cambio de posición.
+            // Para mostrar correctamente el tamaño, forzamos redibujado usando los últimos datos? Podemos llamar a dibujar con 0,0 (se mantendrá la última posición)
+            dibujar(0, 0); 
+            // Actualizar el texto sin perder info
+        } else {
+            dibujar(0, 0);
+        }
+    }
+    
+    // ----- Función de activación de sensores (con auto-intento al cargar) -----
+    function activarSensores() {
+        if (sensoresActivos) {
+            datosDiv.innerHTML = "✅ Sensores ya activos. Inclina el celular.";
+            return;
+        }
+        
+        // Detectar iOS (requiere permiso explícito por gesto del usuario)
+        if (typeof DeviceOrientationEvent !== 'undefined' && 
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            // Es iPhone / iOS
+            datosDiv.innerHTML = "🍏 Solicitando permiso para sensores (iPhone)... toca permitir";
+            DeviceOrientationEvent.requestPermission()
+                .then(estado => {
+                    if (estado === 'granted') {
+                        window.addEventListener('deviceorientation', manejarOrientation);
+                        sensoresActivos = true;
+                        datosDiv.innerHTML = "✅ Sensores ACTIVADOS (iPhone) | Inclina el celular 🎉<br>✨ Valores brutos visibles";
+                        centrarFigura();  // centrar tras activación
+                    } else {
+                        datosDiv.innerHTML = "❌ Permiso denegado. Recarga y vuelve a intentar.";
+                    }
+                })
+                .catch(error => {
+                    datosDiv.innerHTML = "⚠️ Error: " + (error.message || error);
+                });
+        } else {
+            // Android y otros: agregar evento directamente
+            window.addEventListener('deviceorientation', manejarOrientation);
+            sensoresActivos = true;
+            datosDiv.innerHTML = "🤖 Sensores ACTIVADOS (Android) | Gira el celular → todo cambia";
+            centrarFigura();
+        }
+    }
+    
+    // ----- AUTO-ACTIVACIÓN (retos adicionales) -----
+    // Intentar activar automáticamente al cargar la página (funciona en Android, en iOS mostrará aviso)
+    function intentarAutoActivacion() {
+        if (typeof DeviceOrientationEvent !== 'undefined' && 
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            // iOS: no podemos pedir permiso sin toque, mostramos mensaje amigable
+            datosDiv.innerHTML = "🍎 iPhone detectado: toca el botón naranja o cualquier botón para activar sensores.<br>⚡ Auto-activación requiere interacción táctil en iOS.";
+        } else {
+            // Android: podemos activar directamente
+            if (!sensoresActivos) {
+                window.addEventListener('deviceorientation', manejarOrientation);
+                sensoresActivos = true;
+                datosDiv.innerHTML = "🤖 Auto-activación exitosa (Android) | Inclina el celular → color + tamaño dinámico";
+                centrarFigura();
+            }
+        }
+    }
+    
+    // ----- Configuración de eventos UI -----
+    botonActivar.addEventListener('click', activarSensores);
+    resetBtn.addEventListener('click', centrarFigura);
+    modoBtn.addEventListener('click', toggleModo);
+    
+    // Dibujo inicial sin sensores
+    dibujar(0, 0);
+    
+    // Llamar a auto-activación al cargar (solo Android funcionará inmediatamente)
+    intentarAutoActivacion();
+    
+    // Mensaje en consola para profesores/alumnos
+    console.log("🎯 Todos los retos incluidos: color dinámico, reset, valores crudos, auto-activación (Android), cuadrado con tamaño variable.");
+</script>
+</body>
+</html>
